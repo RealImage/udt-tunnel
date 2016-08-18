@@ -18,6 +18,8 @@ var udtport = flag.Int("udtport", 0, "Local UDT port to listen.")
 var tcpaddr = flag.String("tcpaddr", "", "Remote TCP address (host:port) to connect.")
 var tcpport = flag.Int("tcpport", 0, "Local TCP port to listen.")
 
+var bufsize = flag.Int("bufsize", 1024*1024, "Send/receive buffer size.")
+
 var stopc chan struct{}
 var stopped bool = false
 
@@ -112,7 +114,7 @@ func main() {
 }
 
 func handle(d Dialer, network, raddr string, l net.Conn) {
-	fmt.Printf("connecting to remote address %s...\n", l.RemoteAddr())
+	fmt.Printf("connecting to remote address %s...\n", raddr)
 	r, err := d.Dial(network, raddr)
 	exitOnError(err)
 
@@ -127,13 +129,65 @@ func tunnel(l, r net.Conn) {
 	donec := make(chan struct{}, 2)
 
 	go func() {
-		n, _ := io.Copy(l, r)
+		buf := make([]byte, *bufsize)
+		n := 0
+		for {
+			nr, rerr := r.Read(buf)
+			if rerr != nil && rerr != io.EOF {
+				fmt.Fprintf(os.Stderr, "reading from %s failed: %s\n", r.RemoteAddr(), rerr.Error())
+				break
+			}
+
+			fmt.Printf("read %d bytes from remote\n", nr)
+
+			if nr > 0 {
+				nw, werr := l.Write(buf[:nr])
+				if werr != nil {
+					fmt.Fprintf(os.Stderr, "writing to %s failed: %s\n", l.RemoteAddr(), werr.Error())
+					break
+				}
+
+				fmt.Printf("written %d bytes to local\n", nw)
+				n += nw
+			}
+
+			if rerr == io.EOF {
+				break
+			}
+		}
+
 		fmt.Printf("tunnel %s<->%s received %d bytes.\n", l.RemoteAddr(), r.RemoteAddr(), n)
 		donec <- struct{}{}
 	}()
 
 	go func() {
-		n, _ := io.Copy(r, l)
+		buf := make([]byte, *bufsize)
+		n := 0
+		for {
+			nr, rerr := l.Read(buf)
+			if rerr != nil && rerr != io.EOF {
+				fmt.Fprintf(os.Stderr, "reading from %s failed: %s\n", l.RemoteAddr(), rerr.Error())
+				break
+			}
+
+			fmt.Printf("read %d bytes from local\n", nr)
+
+			if nr > 0 {
+				nw, werr := r.Write(buf[:nr])
+				if werr != nil {
+					fmt.Fprintf(os.Stderr, "writing %s remote failed: %s\n", r.RemoteAddr(), werr.Error())
+					break
+				}
+
+				fmt.Printf("written %d bytes to remote\n", nw)
+				n += nw
+			}
+
+			if rerr == io.EOF {
+				break
+			}
+		}
+
 		fmt.Printf("tunnel %s<->%s sent %d bytes.\n", l.RemoteAddr(), r.RemoteAddr(), n)
 		donec <- struct{}{}
 	}()
