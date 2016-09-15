@@ -13,7 +13,7 @@ $ udt-tunnel -udtaddr <remote-udt-server-addr:port> -tcpport <local-tcp-listen-p
 On remote machine
 
 ```
-$ udt-tunnel -udtport <local-udt-list-port> -tcpport <local-tcp-server-addr:port>
+$ udt-tunnel -udtport <local-udt-list-port> -tcpaddr <local-tcp-server-addr:port>
 ```
 
 ## Connecting TCP with UDT
